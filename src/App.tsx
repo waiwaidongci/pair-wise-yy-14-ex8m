@@ -1,126 +1,88 @@
+// 页面层：领用台布局与状态接线。
+// 业务约束见 rules.ts，台账数据见 archive.ts，状态流转见 desk.ts。
+
+import { useMemo, useReducer } from "react";
 import "./styles.css";
+import { initialArchive } from "./archive";
+import { deskReducer } from "./desk";
+import ArchivePanel from "./components/ArchivePanel";
+import CreateTaskForm from "./components/CreateTaskForm";
+import PendingZone from "./components/PendingZone";
+import TaskList from "./components/TaskList";
 
 const project = {
-  "sourceNo": 8,
-  "id": "hxyfront-62013",
-  "port": 62013,
-  "title": "木结构榫卯构件测绘",
-  "domain": "古建木结构",
-  "prompt": "开发一个古建筑木结构榫卯构件测绘前端项目，测绘人员可以录入建筑名称、构件编号、木材种类、榫卯类型、截面尺寸、病害位置、变形情况和修缮建议。页面需要有构件清单、榫卯类型筛选、尺寸记录表、病害标记图和单栋建筑的构件关系视图。",
-  "palette": [
-    "#854d0e",
-    "#475569",
-    "#0f766e"
-  ],
-  "metrics": [
-    "构件数量",
-    "病害点",
-    "榫卯类型",
-    "待修缮"
-  ],
-  "filters": [
-    "燕尾榫",
-    "透榫",
-    "半榫",
-    "箍头榫"
-  ],
-  "fields": [
-    "建筑名称",
-    "构件编号",
-    "木材种类",
-    "榫卯类型",
-    "截面尺寸",
-    "修缮建议"
-  ],
-  "records": [
-    [
-      "梁架A-03",
-      "透榫",
-      "截面180x240mm",
-      "端部开裂"
-    ],
-    [
-      "柱网C-12",
-      "楠木",
-      "柱脚糟朽",
-      "建议局部墩接"
-    ],
-    [
-      "斗拱D-07",
-      "半榫",
-      "轻微变形",
-      "继续监测"
-    ]
-  ]
+  id: "hxyfront-62013",
+  sourceNo: 8,
+  port: 62013,
+  title: "木结构榫卯构件测绘 · 外业领用台",
 };
 
 function App() {
+  const [state, dispatch] = useReducer(deskReducer, undefined, initialArchive);
+
+  const metrics = useMemo(() => {
+    const openTasks = state.tasks.filter((t) => t.status === "open");
+    const pendingItems = openTasks.reduce(
+      (sum, t) => sum + t.items.filter((i) => i.state === "pending").length,
+      0
+    );
+    const outAssets =
+      state.plates.filter((p) => p.status === "checked-out").length +
+      state.instruments.filter((i) => i.status === "checked-out").length;
+    const retiredAssets =
+      state.plates.filter((p) => p.status === "disabled" || p.status === "lost").length +
+      state.instruments.filter((i) => i.status === "disabled" || i.status === "lost").length;
+    return [
+      { label: "进行中任务", value: openTasks.length },
+      { label: "待领区物品", value: pendingItems },
+      { label: "外借未还", value: outAssets },
+      { label: "停用 / 遗失", value: retiredAssets },
+    ];
+  }, [state]);
+
   return (
     <main className="app">
       <section className="hero">
-        <p>{project.id} · 源提示词{project.sourceNo} · Port {project.port}</p>
+        <p>
+          {project.id} · 源提示词{project.sourceNo} · Port {project.port}
+        </p>
         <h1>{project.title}</h1>
-        <span>{project.prompt}</span>
+        <span>
+          建任务时登记建筑、领用人和归还时间，再选编号牌与仪器；凭证未归还、仪器校准过期或领取人与负责人不一致的物品留在待领区。收工逐件登记完好、损坏或遗失，缺件任务不能结束；损坏凭证停用后可换新，任务自动改挂新凭证。
+        </span>
       </section>
 
       <section className="metrics">
-        {project.metrics.map((metric: string, index: number) => (
-          <article key={metric}>
-            <small>{metric}</small>
-            <strong>{[28, 6, 14, 91][index] ?? 10}</strong>
+        {metrics.map((metric) => (
+          <article key={metric.label}>
+            <small>{metric.label}</small>
+            <strong>{metric.value}</strong>
           </article>
         ))}
       </section>
 
       <section className="workspace">
-        <aside className="panel">
-          <h2>{project.domain}分类</h2>
-          <div className="chips">
-            {project.filters.map((item: string) => (
-              <button key={item}>{item}</button>
-            ))}
-          </div>
-        </aside>
-
-        <section className="panel form-panel">
-          <div className="heading">
-            <div>
-              <p>专业字段</p>
-              <h2>新增记录</h2>
-            </div>
-            <button className="primary">保存记录</button>
-          </div>
-          <div className="field-grid">
-            {project.fields.map((field: string) => (
-              <label key={field}>
-                <span>{field}</span>
-                <input placeholder={"填写" + field} />
-              </label>
-            ))}
-          </div>
-        </section>
+        <CreateTaskForm
+          state={state}
+          onCreate={(payload) => dispatch({ type: "create-task", ...payload })}
+        />
+        <PendingZone state={state} />
       </section>
 
-      <section className="panel">
-        <div className="heading">
-          <div>
-            <p>近期记录</p>
-            <h2>工作台摘要</h2>
-          </div>
-          <button>导出CSV</button>
-        </div>
-        <div className="records">
-          {project.records.map((record: string[], index: number) => (
-            <article key={record.join("-")}>
-              <b>{String(index + 1).padStart(2, "0")}</b>
-              <div>
-                <h3>{record[0]}</h3>
-                <p>{record.slice(1).join(" · ")}</p>
-              </div>
-            </article>
-          ))}
-        </div>
-      </section>
+      <TaskList
+        state={state}
+        onPickup={(taskId, pickupPerson) => dispatch({ type: "pickup", taskId, pickupPerson })}
+        onRemovePending={(taskId, itemId) => dispatch({ type: "remove-pending", taskId, itemId })}
+        onRecordCondition={(taskId, itemId, condition) =>
+          dispatch({ type: "record-condition", taskId, itemId, condition })
+        }
+        onReplacePlate={(taskId, itemId, newPlateId) =>
+          dispatch({ type: "replace-plate", taskId, itemId, newPlateId })
+        }
+        onCloseTask={(taskId) => dispatch({ type: "close-task", taskId })}
+      />
+
+      <ArchivePanel state={state} />
     </main>
   );
 }
